@@ -62,9 +62,29 @@ python focus_662.py --exp 0.01 --gain 252 --scale log
 
 The focus program captures continuously. Stop it with Ctrl-C.
 
-## Star-pointing functions
+## Star-pointing command line
 
-`starpoint_662.py` currently exposes Python functions rather than a command-line entry point. A typical interactive workflow is:
+The default target table is `startable.txt`. Test parsing and schedule timing without opening the camera or invoking ASTAP:
+
+```bash
+python starpoint_662.py --test
+```
+
+Run a real acquisition using the default table and three-second exposure:
+
+```bash
+python starpoint_662.py
+```
+
+Supply another table or exposure as needed:
+
+```bash
+python starpoint_662.py startable-YYYY-MM-DD.txt --exp 3
+```
+
+Use `--help` to see the complete CLI. Omitting `--test` performs real camera acquisition.
+
+The same workflow is available as a Python API:
 
 ```python
 from starpoint_662 import imaging, result2dazel, mountcal

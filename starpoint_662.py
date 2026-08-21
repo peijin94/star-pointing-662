@@ -499,3 +499,40 @@ def mountcal(filepath):
     for axis in axes:
         axis.legend()
     return coefficients
+
+
+def parse_args(argv=None):
+    """Parse command-line arguments for scheduled star imaging."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Capture and plate-solve scheduled ASI662 star fields."
+    )
+    parser.add_argument(
+        "startable",
+        nargs="?",
+        default="startable.txt",
+        help="Target-table path (default: startable.txt)",
+    )
+    parser.add_argument(
+        "--exp",
+        type=float,
+        default=3.0,
+        help="Camera exposure in seconds (default: 3)",
+    )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Exercise parsing and timing without camera capture or ASTAP",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    """Run scheduled imaging from command-line arguments."""
+    args = parse_args(argv)
+    return imaging(args.startable, exp_s=args.exp, test=args.test)
+
+
+if __name__ == "__main__":
+    main()

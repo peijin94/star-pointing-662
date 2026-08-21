@@ -42,6 +42,34 @@ class FakeCamera:
         self.closed = True
 
 
+class CommandLineTest(unittest.TestCase):
+    def test_defaults_to_startable_txt_and_real_acquisition(self):
+        args = starpoint.parse_args([])
+
+        self.assertEqual(args.startable, "startable.txt")
+        self.assertEqual(args.exp, 3.0)
+        self.assertFalse(args.test)
+
+    def test_arguments_override_defaults(self):
+        args = starpoint.parse_args([
+            "targets.txt",
+            "--exp",
+            "0.25",
+            "--test",
+        ])
+
+        self.assertEqual(args.startable, "targets.txt")
+        self.assertEqual(args.exp, 0.25)
+        self.assertTrue(args.test)
+
+    def test_main_dispatches_to_imaging(self):
+        with patch("starpoint_662.imaging", return_value="results.txt") as imaging:
+            result = starpoint.main(["targets.txt", "--exp", "1.5", "--test"])
+
+        self.assertEqual(result, "results.txt")
+        imaging.assert_called_once_with("targets.txt", exp_s=1.5, test=True)
+
+
 class StarTableTest(unittest.TestCase):
     def test_valid_table_parses_negative_subdegree_declination(self):
         row = (
