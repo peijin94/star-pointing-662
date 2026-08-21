@@ -4,7 +4,7 @@ This project uses a ZWO ASI662MC camera and a short-focal-length lens to measure
 
 ## Status
 
-The current code was copied from the Raspberry Pi development directory at `/home/starp/star_capture` on 2026-08-20. The source has received a static review, but `starpoint_662.py` has not yet been executed from this repository or validated on an antenna. See [Known issues](#known-issues-before-hardware-use) before running it.
+The original code was copied from the Raspberry Pi development directory at `/home/starp/star_capture` on 2026-08-20. Hardware-free regression tests run in the Pi's Python environment, but the corrected acquisition and pointing workflow has not yet been exercised with the camera, ASTAP, or an antenna. See [Validation still required](#validation-still-required-before-antenna-use).
 
 The code measures pointing; it does **not** command or slew the EOVSA antenna. Antenna scheduling/control must provide the target table and move the antenna independently.
 
@@ -24,6 +24,7 @@ The code measures pointing; it does **not** command or slew the EOVSA antenna. A
 - `starpoint_662.py` — target-table parsing, image capture, FITS creation, ASTAP solving, coordinate conversion, and pointing-model fitting.
 - `focus_662.py` — continuously captures and displays images for camera focusing.
 - `test_focus_662.py` — regression checks for focus-script CLI argument binding and gain conversion.
+- `test_starpoint_662.py` — hardware-free regression coverage for parsing, camera lifecycle, FITS metadata, ASTAP handling, output paths, coordinate wrapping, and pointing-model fitting.
 
 ## Hardware and external software
 
@@ -77,15 +78,15 @@ Use `test=True` first to exercise schedule parsing and timing without opening th
 imaging("startable-YYYY-MM-DD.txt", exp_s=3, test=False)
 ```
 
-After acquisition, the intended post-processing calls in the **same Python process** are:
+After acquisition from the repository root, the intended post-processing calls are:
 
 ```python
-result_file = "YYYY-MM-DD_solve_results.txt"
+result_file = "YYYY-MM-DD/YYYY-MM-DD_solve_results.txt"
 result2dazel(result_file)
 coefficients = mountcal(result_file)
 ```
 
-This works because `imaging()` has already changed into the date directory. From a fresh process started at the repository root, use `YYYY-MM-DD/YYYY-MM-DD_solve_results.txt` instead. Review the working-directory issue below before using either form.
+`imaging()` writes through explicit paths and does not change the process working directory.
 
 ## Target-table contract
 
@@ -96,11 +97,11 @@ This works because `imaging()` has already changed into the date directory. From
 - Characters 17 through 40 contain whitespace-separated `HH:MM:SS` right ascension and signed `DD:MM:SS` declination.
 - The final two whitespace-separated fields form an Astropy-compatible UTC date and time.
 
-The parser does not currently validate this structure. Preserve the fixed columns and verify the parsed targets before acquisition.
+The parser validates the coordinate ranges and reports malformed rows with their filename and line number. Preserve the fixed columns and verify the parsed targets before acquisition.
 
 ## Outputs
 
-During acquisition, the code creates a directory named for the first target date and changes into it. It may then create:
+During acquisition, the code creates a directory named for the first target date without changing the process working directory. It may then create:
 
 - FITS images containing camera and approximate pointing metadata
 - ASTAP `.wcs` solution files
@@ -110,30 +111,40 @@ During acquisition, the code creates a directory named for the first target date
 
 The observing site, atmosphere, camera, and lens assumptions are currently constants in `starpoint_662.py`. Confirm `LAT`, `LON`, `TEMP_C`, `PRESS_MB`, focal length, pixel size, image dimensions, gain, exposure, and ASTAP field of view before an observing run.
 
-## Known issues before hardware use
+## Corrected review findings
 
-The following were found by static review and have not yet been corrected:
+The correction pass added guaranteed camera cleanup, zero-coordinate FITS support, accurate gain metadata, safe logarithmic display, ASTAP timeout/exit/stale-file handling, contextual table validation, stable output paths, first-row preservation, wrapped azimuth differences, true arcminute reporting, minimum-data/convergence/rank checks, and observed-versus-model plots.
 
-1. **Camera cleanup:** `snap()` does not close the camera in a `finally` block. A capture, reshape, FITS-write, or plotting exception can leave the camera open.
-2. **Zero-valued coordinates:** checks such as `if ra` and `if dec` treat valid zero-degree coordinates as missing.
-3. **Incorrect FITS gain metadata:** the `GAIN` header is always written as 252 even when another gain is passed to `snap()`.
-4. **Stale plate solutions:** `plate_solve()` does not check the ASTAP exit status, remove an old WCS file before solving, or impose a timeout. A stale `.wcs` file could be mistaken for a new successful solution.
-5. **Working-directory side effect:** `imaging()` changes into its date output directory and never restores the caller's original directory. Repeated calls in one process can use unexpected nested paths.
-6. **Empty or malformed schedules:** an empty target list fails at `targets[0]`, while malformed fixed-width rows fail without a contextual error message.
-7. **First calibration row discarded:** acquisition writes no results header, but `get_alt_az_data()` always skips the first line as if it were a header.
-8. **Azimuth wraparound:** direct subtraction of azimuths near 0/360 degrees can create an error close to a full revolution instead of the small wrapped difference.
-9. **Incorrect displayed units:** `mountcal()` labels coefficients as arcminutes but converts radians only to degrees; arcminutes require an additional factor of 60.
-10. **Fit validation:** the seven-term least-squares fit does not enforce enough observations, report conditioning/uncertainty, or verify convergence and residual quality.
-11. **Refraction/model validation:** refraction is applied asymmetrically to the model altitude, and the pointing-equation signs and conventions have not yet been validated against the EOVSA control system.
-12. **Log display:** `np.log10()` receives raw image values directly; zero-valued pixels produce negative infinity and warnings.
+## Validation still required before antenna use
 
-These issues should be resolved and covered by tests before applying fitted coefficients to an operational antenna.
+1. **Pointing conventions:** verify the seven model-term signs, axis conventions, and coefficient definitions against the EOVSA control system before applying coefficients.
+2. **Refraction:** confirm whether refraction belongs in the nominal altitude used by this model and whether pressure, temperature, and site elevation should be supplied through Astropy's `AltAz` frame instead.
+3. **Site and optics:** confirm latitude, longitude, site height, focal length, pixel size, image dimensions, gain, exposure, ASTAP field of view, and search radius against the installed antenna/camera assembly.
+4. **Schedule semantics:** confirm that each table timestamp denotes the start of antenna settling and that acquisition should occur only from 30 to 60 seconds afterward.
+5. **External integration:** run controlled checks with the actual ASI662MC and ASTAP database. The automated tests mock the camera and solver and do not slew the antenna.
+6. **Fit acceptance:** convergence and rank are checked, but operational acceptance thresholds for residual RMS, coefficient uncertainty, sky coverage, and outlier rejection still need domain decisions.
+
+Do not apply fitted coefficients to an operational antenna until these items are validated.
 
 ## Current test coverage
 
-`test_focus_662.py` covers two previously fixed focus-script failures:
+Run all tests in the Pi environment without opening the camera:
+
+```bash
+MPLBACKEND=Agg python -m unittest -v test_focus_662.py test_starpoint_662.py
+```
+
+The suite covers:
 
 - exposure and gain binding to the correct function parameters
 - parsing camera gain as an integer required by the ZWO SDK
+- camera closure on acquisition failures
+- schedule and solve-result validation
+- zero-valued FITS coordinates and requested gain metadata
+- stale and successful ASTAP WCS handling
+- stable process/output paths
+- first-observation preservation and azimuth wraparound
+- radians-to-arcminutes conversion
+- minimum fit data and recovery of seven synthetic pointing coefficients
 
-There are not yet tests for target parsing, timing windows, FITS headers, ASTAP failure behavior, coordinate wraparound, or pointing-model recovery from synthetic data.
+The suite does not operate the camera, invoke a real ASTAP process, or command an antenna.
